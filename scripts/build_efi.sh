@@ -13,11 +13,15 @@ have() { command -v "$1" >/dev/null 2>&1; }
 if have gcc; then
   LDS=$(find /usr/lib -name elf_x86_64_efi.lds -print -quit 2>/dev/null || true)
   CRT=$(find /usr/lib -name crt0-efi-x86_64.o -print -quit 2>/dev/null || true)
-  if [ -d /usr/include/efi ] && [ -n "${LDS:-}" ] && [ -n "${CRT:-}" ]; then
-    CFLAGS="-I/usr/include/efi -I/usr/include/efi/x86_64 -fno-stack-protector -fpic -fshort-wchar -mno-red-zone -DEFI_FUNCTION_WRAPPER -Wall -Wextra -Os"
-    LDFLAGS="-nostdlib -znocombreloc -T ${LDS}"
+  INC=/usr/include/efi
+  INC64=/usr/include/efi/x86_64
+  GNUEFI_A=$(find /usr/lib -name libgnuefi.a -print -quit 2>/dev/null || true)
+  EFI_A=$(find /usr/lib -name libefi.a -print -quit 2>/dev/null || true)
+  if [ -d "$INC" ] && [ -n "${LDS:-}" ] && [ -n "${CRT:-}" ] && [ -n "${GNUEFI_A:-}" ] && [ -n "${EFI_A:-}" ]; then
+    CFLAGS="-I$INC -I$INC64 -fno-stack-protector -fpic -fshort-wchar -mno-red-zone -DEFI_FUNCTION_WRAPPER -Wall -Wextra -Os"
+    LDFLAGS="-nostdlib -znocombreloc -T $LDS"
     gcc $CFLAGS -c "$SRC" -o "$OBJDIR/efi_main.o"
-    ld $LDFLAGS "${CRT}" "$OBJDIR/efi_main.o" -o "$OBJDIR/efi_main.so" -lgnuefi -lefi
+    ld $LDFLAGS "$CRT" "$OBJDIR/efi_main.o" "$GNUEFI_A" "$EFI_A" -o "$OBJDIR/efi_main.so"
     objcopy --target=efi-app-x86_64 "$OBJDIR/efi_main.so" "$EFI"
     echo "Built $EFI via gnu-efi"
     exit 0
