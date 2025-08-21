@@ -1,5 +1,8 @@
 name: build
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,7 +15,6 @@ jobs:
           echo "LC_ALL=C" >> $GITHUB_ENV
 
       - name: Toolchain
-        shell: bash
         run: |
           set -euxo pipefail
           sudo apt-get update
@@ -20,13 +22,18 @@ jobs:
           sudo apt-get install -y build-essential binutils xorriso mtools dosfstools uuid-dev
           # gnu-efi varies by release; try specific then generic
           sudo apt-get install -y gnu-efi-amd64 || sudo apt-get install -y gnu-efi
+          # UEFI firmware + QEMU (qemu-img lives in qemu-utils)
+          sudo apt-get install -y ovmf qemu-system-x86 qemu-utils
 
       - name: Build
         run: make
+
       - name: Build ISO
         run: make iso
+
       - name: Size gate (kernel ≤ 512 KiB)
         run: ./scripts/size_gate.sh kernel.bin 524288
+
       - name: ISO size gate (≤ 32 MiB, conditional)
         run: |
           if [ -f iso/sovrn.iso ]; then
@@ -34,10 +41,23 @@ jobs:
           else
             echo "No ISO yet — skipping"
           fi
+
+      - name: UEFI smoke (serial)
+        run: ./scripts/boot_smoke.sh iso/sovrn.iso
+
+      - name: Upload serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-uefi-serial
+          path: out/qemu-uefi-serial.log
+
       - name: EFI verify (conditional)
         run: bash scripts/efi_verify.sh || true
+
       - name: SHA256SUMS
         run: ./scripts/mksums.sh
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
