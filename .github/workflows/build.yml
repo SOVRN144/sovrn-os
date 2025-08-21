@@ -28,6 +28,8 @@ jobs:
           fi
       - name: EFI verify (conditional)
         run: bash scripts/efi_verify.sh || true
+      - name: SHA256SUMS
+        run: ./scripts/mksums.sh
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -36,7 +38,8 @@ jobs:
             kernel.bin
             out/BUILDINFO
             out/BANNER.txt
+            out/SHA256SUMS
             iso/sovrn.iso
             boot/BOOTX64.EFI
             boot/mbr.bin
-          if-no-files-found: ignore
+          if-no-files-found: warn
