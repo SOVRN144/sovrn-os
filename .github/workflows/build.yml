@@ -13,5 +13,24 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential
       - name: Build
         run: make
-      - name: Size gate
+      - name: Size gate (kernel ≤ 512 KiB)
         run: ./scripts/size_gate.sh kernel.bin 524288
+      - name: ISO size gate (≤ 32 MiB, conditional)
+        run: |
+          if [ -f iso/sovrn.iso ]; then
+            ./scripts/size_gate.sh iso/sovrn.iso 33554432
+          else
+            echo "No ISO yet — skipping"
+          fi
+      - name: EFI verify (conditional)
+        run: bash scripts/efi_verify.sh || true
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-artifacts
+          path: |
+            kernel.bin
+            out/BUILDINFO
+            iso/sovrn.iso
+            boot/BOOTX64.EFI
+          if-no-files-found: ignore
