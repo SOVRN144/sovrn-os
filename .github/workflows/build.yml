@@ -16,20 +16,19 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          # toolchain + ISO tools
-          sudo apt-get install -y build-essential binutils xorriso mtools dosfstools uuid-dev gnu-efi
-          # qemu runtime + firmware + qemu-img
-          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf
+          # toolchain + iso bits
+          sudo apt-get install -y build-essential binutils xorriso mtools dosfstools uuid-dev
+          # gnu-efi varies by release
+          sudo apt-get install -y gnu-efi || true
+          # qemu + firmware + qemu-img
+          sudo apt-get install -y qemu-system-x86 ovmf qemu-utils
 
       - name: Build
         run: make
-
       - name: Build ISO
         run: make iso
-
       - name: Size gate (kernel ≤ 512 KiB)
         run: ./scripts/size_gate.sh kernel.bin 524288
-
       - name: ISO size gate (≤ 32 MiB, conditional)
         run: |
           if [ -f iso/sovrn.iso ]; then
@@ -38,80 +37,69 @@ jobs:
             echo "No ISO yet — skipping"
           fi
 
+      # ----- UEFI smoke that ALWAYS writes/exports a log -----
       - name: UEFI smoke (serial)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p out
-          : > out/qemu-uefi-serial.log
-          echo "[preflight] starting smoke" | tee -a out/qemu-uefi-serial.log
+          : > out/qemu-uefi-serial.log   # make sure a file exists no matter what
+          ISO="iso/sovrn.iso"
+          echo "[dbg] ls -l $ISO" | tee -a out/qemu-uefi-serial.log
+          ls -l "$ISO" | tee -a out/qemu-uefi-serial.log || true
 
-          # Find OVMF CODE
+          # Pick OVMF CODE on Ubuntu
           CODE="/usr/share/OVMF/OVMF_CODE.fd"
-          if [ ! -f "$CODE" ]; then
-            CODE=$(ls /usr/share/OVMF/OVMF_CODE*.fd 2>/dev/null | head -1 || true)
+          if [[ ! -f "$CODE" ]]; then
+            CODE=$(ls /usr/share/OVMF/OVMF_CODE*.fd 2>/dev/null | head -1)
           fi
-          if [ ! -f "$CODE" ]; then
-            echo "[preflight] OVMF CODE not found; contents of /usr/share/OVMF:" | tee -a out/qemu-uefi-serial.log
-            ls -l /usr/share/OVMF || true | tee -a out/qemu-uefi-serial.log
-            exit 2
+          echo "[dbg] OVMF CODE: $CODE" | tee -a out/qemu-uefi-serial.log
+          if [[ ! -f "$CODE" ]]; then
+            echo "ERROR: OVMF CODE not found" | tee -a out/qemu-uefi-serial.log
           fi
-          echo "[preflight] OVMF CODE: $CODE" | tee -a out/qemu-uefi-serial.log
 
-          # Make fresh VARS pflash (keep small)
-          VARS="$(mktemp -t ovmf_vars).fd"
+          # Fresh VARS flash (fallback to dd if qemu-img missing)
+          VARS="$(mktemp)"   # extension not required
           if command -v qemu-img >/dev/null 2>&1; then
-            qemu-img create -f raw "$VARS" 4M >/dev/null
+            qemu-img create -f raw "$VARS" 4M
           else
-            # Fallback (shouldn’t happen now that qemu-utils is installed)
-            dd if=/dev/zero of="$VARS" bs=1M count=4 status=none
+            dd if=/dev/zero of="$VARS" bs=1M count=4
           fi
 
-          echo "[preflight] qemu-system-x86_64: $(command -v qemu-system-x86_64 || echo MISSING)" | tee -a out/qemu-uefi-serial.log
-          echo "[preflight] qemu-img: $(command -v qemu-img || echo MISSING)" | tee -a out/qemu-uefi-serial.log
-
-          # Run QEMU headless; always tee to a log
-          /usr/bin/timeout 25s qemu-system-x86_64 \
+          # Run QEMU under timeout; do NOT let failure kill the step yet
+          set +e
+          timeout 25s qemu-system-x86_64 \
             -machine q35 -m 256 -serial stdio -display none -no-reboot \
             -drive if=pflash,format=raw,readonly=on,file="$CODE" \
             -drive if=pflash,format=raw,file="$VARS" \
             -boot order=d,menu=off \
-            -cdrom iso/sovrn.iso \
-            | tee -a out/qemu-uefi-serial.log || true
+            -cdrom "$ISO" \
+            | tee -a out/qemu-uefi-serial.log
+          rc=$?
+          set -e
 
-          # Assert banner
+          # Record pass/fail to a file; job assertion happens later
           if grep -q "SOVRN ENGINE ONLINE" out/qemu-uefi-serial.log; then
-            echo "Smoke OK: banner observed on serial." | tee -a out/qemu-uefi-serial.log
+            echo PASS > out/smoke_result.txt
           else
-            echo "Smoke FAILED. Last 120 lines:" | tee -a out/qemu-uefi-serial.log
-            tail -n 120 out/qemu-uefi-serial.log || true
-            exit 1
+            echo FAIL > out/smoke_result.txt
+            echo "[dbg] smoke rc=$rc" >> out/qemu-uefi-serial.log
           fi
 
       - name: Upload serial log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qemu-uefi-serial
-          path: out/qemu-uefi-serial.log
-          if-no-files-found: warn
-
-      - name: EFI verify (conditional)
-        run: bash scripts/efi_verify.sh || true
-
-      - name: SHA256SUMS
-        run: ./scripts/mksums.sh
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase-artifacts
+          name: uefi-smoke
           path: |
-            kernel.bin
-            out/BUILDINFO
-            out/BANNER.txt
-            out/SHA256SUMS
-            iso/sovrn.iso
-            boot/BOOTX64.EFI
-            boot/mbr.bin
-          if-no-files-found: warn
+            out/qemu-uefi-serial.log
+            out/smoke_result.txt
+          if-no-files-found: error
+
+      - name: Assert smoke passed
+        if: always()
+        run: |
+          test -f out/smoke_result.txt
+          grep -q PASS out/smoke_result.txt
+
+      # (optional) keep your EFI verify + SHA256 + artifacts here as before
