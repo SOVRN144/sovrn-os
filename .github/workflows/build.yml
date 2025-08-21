@@ -1,7 +1,5 @@
 name: build
-on:
-  push:
-  pull_request:
+on: [push, pull_request]
 
 jobs:
   build:
@@ -15,15 +13,13 @@ jobs:
           echo "LC_ALL=C" >> $GITHUB_ENV
 
       - name: Toolchain
+        shell: bash
         run: |
           set -euxo pipefail
           sudo apt-get update
-          # ISO + toolchain bits
-          sudo apt-get install -y build-essential binutils xorriso mtools dosfstools uuid-dev
-          # gnu-efi varies by release; try specific then generic
-          sudo apt-get install -y gnu-efi-amd64 || sudo apt-get install -y gnu-efi
-          # UEFI firmware + QEMU (qemu-img lives in qemu-utils)
-          sudo apt-get install -y ovmf qemu-system-x86 qemu-utils
+          sudo apt-get install -y \
+            build-essential binutils xorriso mtools dosfstools uuid-dev gnu-efi \
+            qemu-system-x86 qemu-utils ovmf
 
       - name: Build
         run: make
@@ -43,7 +39,11 @@ jobs:
           fi
 
       - name: UEFI smoke (serial)
-        run: ./scripts/boot_smoke.sh iso/sovrn.iso
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          bash scripts/boot_smoke.sh iso/sovrn.iso
 
       - name: Upload serial log
         if: always()
@@ -51,6 +51,7 @@ jobs:
         with:
           name: qemu-uefi-serial
           path: out/qemu-uefi-serial.log
+          if-no-files-found: warn
 
       - name: EFI verify (conditional)
         run: bash scripts/efi_verify.sh || true
