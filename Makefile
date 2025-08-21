@@ -41,3 +41,13 @@ kernel.bin: kernel.o
 clean:
 	rm -f kernel.o kernel.bin
 	rm -rf $(OUT)
+
+# --- ISO build ---
+ISO := iso/sovrn.iso
+
+.PHONY: iso
+iso: $(ISO)
+
+$(ISO): boot/BOOTX64.EFI scripts/mkiso.sh
+	mkdir -p iso
+	bash scripts/mkiso.sh
