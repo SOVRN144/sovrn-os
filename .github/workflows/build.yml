@@ -16,9 +16,9 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          # ISO tools
-          sudo apt-get install -y build-essential xorriso mtools dosfstools uuid-dev
-          # gnu-efi package names vary by Ubuntu release:
+          # ISO + toolchain bits
+          sudo apt-get install -y build-essential binutils xorriso mtools dosfstools uuid-dev
+          # gnu-efi varies by release; try specific then generic
           sudo apt-get install -y gnu-efi-amd64 || sudo apt-get install -y gnu-efi
 
       - name: Build
