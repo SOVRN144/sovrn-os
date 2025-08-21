@@ -24,7 +24,7 @@ if have gcc; then
   done
 
   if [ -d /usr/include/efi ] && [ -n "${LDS:-}" ] && [ -n "${CRT:-}" ] && [ -n "${LIBDIR:-}" ]; then
-    CFLAGS="-I/usr/include/efi -I/usr/include/efi/x86_64 -fno-stack-protector -fpic -fshort-wchar -mno-red-zone -DEFI_FUNCTION_WRAPPER -Wall -Wextra -Os"
+    CFLAGS="-I/usr/include/efi -I/usr/include/efi/x86_64 -fno-stack-protector -fno-pie -fpic -fshort-wchar -mno-red-zone  -Wall -Wextra -Os"
     # allow CI to inject e.g. -DSOVRN_EXIT_AFTER_BANNER
     CFLAGS="${CFLAGS} ${EFI_DEFINES:-}"
 
@@ -32,7 +32,7 @@ if have gcc; then
 
     # Link via GCC so multi-arch lib paths are honored, and add proper flags
     gcc -nostdlib -Wl,-shared -Wl,-Bsymbolic -Wl,-T,"$LDS" -L"$LIBDIR" \
-        "$CRT" "$OBJDIR/efi_main.o" -o "$OBJDIR/efi_main.so" -lgnuefi -lefi
+        "$CRT" "$OBJDIR/efi_main.o" -o "$OBJDIR/efi_main.so" -lgnuefi -lefi -no-pie
 
     # Produce a PE/COFF EFI application and stamp the subsystem
     objcopy --target=efi-app-x86_64 --subsystem=10 "$OBJDIR/efi_main.so" "$EFI"
