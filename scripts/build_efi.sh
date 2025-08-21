@@ -11,20 +11,26 @@ mkdir -p "$OUTDIR" "$OBJDIR"
 have() { command -v "$1" >/dev/null 2>&1; }
 
 if have gcc; then
-  LDS=$(find /usr/lib -name elf_x86_64_efi.lds -print -quit 2>/dev/null || true)
-  CRT=$(find /usr/lib -name crt0-efi-x86_64.o -print -quit 2>/dev/null || true)
-  INC=/usr/include/efi
-  INC64=/usr/include/efi/x86_64
-  GNUEFI_A=$(find /usr/lib -name libgnuefi.a -print -quit 2>/dev/null || true)
-  EFI_A=$(find /usr/lib -name libefi.a -print -quit 2>/dev/null || true)
-  if [ -d "$INC" ] && [ -n "${LDS:-}" ] && [ -n "${CRT:-}" ] && [ -n "${GNUEFI_A:-}" ] && [ -n "${EFI_A:-}" ]; then
-    CFLAGS="-I$INC -I$INC64 -fno-stack-protector -fpic -fshort-wchar -mno-red-zone -DEFI_FUNCTION_WRAPPER -Wall -Wextra -Os"
-    LDFLAGS="-nostdlib -znocombreloc -T $LDS"
+  # Find headers, linker script, crt, and libs across common Ubuntu layouts
+  INC_BASE="/usr/include/efi"
+  INC_X64="$INC_BASE/x86_64"
+  LDS=$(find /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/gnu-efi -name elf_x86_64_efi.lds -print -quit 2>/dev/null || true)
+  CRT=$(find /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/gnu-efi -name crt0-efi-x86_64.o -print -quit 2>/dev/null || true)
+  LIBDIR=$(dirname "$(find /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/gnu-efi -name libgnuefi.a -print -quit 2>/dev/null || echo /nonexistent)") || true
+
+  if [ -d "$INC_BASE" ] && [ -d "$INC_X64" ] && [ -n "${LDS:-}" ] && [ -n "${CRT:-}" ] && [ -d "${LIBDIR:-}" ]; then
+    CFLAGS="-I$INC_BASE -I$INC_X64 -fno-stack-protector -fpic -fshort-wchar -mno-red-zone -DEFI_FUNCTION_WRAPPER -Wall -Wextra -Os"
+    LDFLAGS="-nostdlib -shared -Bsymbolic -znocombreloc -T $LDS -L$LIBDIR"
     gcc $CFLAGS -c "$SRC" -o "$OBJDIR/efi_main.o"
-    ld $LDFLAGS "$CRT" "$OBJDIR/efi_main.o" "$GNUEFI_A" "$EFI_A" -o "$OBJDIR/efi_main.so"
+    ld  $LDFLAGS "$CRT" "$OBJDIR/efi_main.o" -lgnuefi -lefi -o "$OBJDIR/efi_main.so"
     objcopy --target=efi-app-x86_64 "$OBJDIR/efi_main.so" "$EFI"
     echo "Built $EFI via gnu-efi"
     exit 0
+  else
+    echo "diag: INC_BASE=$INC_BASE  INC_X64=$INC_X64"
+    echo "diag: LDS=$LDS"
+    echo "diag: CRT=$CRT"
+    echo "diag: LIBDIR=$LIBDIR"
   fi
 fi
 
