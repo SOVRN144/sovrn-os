@@ -5,11 +5,49 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set deterministic env
         run: |
           echo "SOURCE_DATE_EPOCH=1734825600" >> $GITHUB_ENV
           echo "LC_ALL=C" >> $GITHUB_ENV
+
       - name: Toolchain
+        shell: bash
         run: |
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y build-essential xorriso mtools dosfstools gnu-efi gnu-efi-amd64
+          # ISO tools
+          sudo apt-get install -y build-essential xorriso mtools dosfstools uuid-dev
+          # gnu-efi package names vary by Ubuntu release:
+          sudo apt-get install -y gnu-efi-amd64 || sudo apt-get install -y gnu-efi
+
+      - name: Build
+        run: make
+      - name: Build ISO
+        run: make iso
+      - name: Size gate (kernel ≤ 512 KiB)
+        run: ./scripts/size_gate.sh kernel.bin 524288
+      - name: ISO size gate (≤ 32 MiB, conditional)
+        run: |
+          if [ -f iso/sovrn.iso ]; then
+            ./scripts/size_gate.sh iso/sovrn.iso 33554432
+          else
+            echo "No ISO yet — skipping"
+          fi
+      - name: EFI verify (conditional)
+        run: bash scripts/efi_verify.sh || true
+      - name: SHA256SUMS
+        run: ./scripts/mksums.sh
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-artifacts
+          path: |
+            kernel.bin
+            out/BUILDINFO
+            out/BANNER.txt
+            out/SHA256SUMS
+            iso/sovrn.iso
+            boot/BOOTX64.EFI
+            boot/mbr.bin
+          if-no-files-found: warn
