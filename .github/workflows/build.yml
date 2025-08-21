@@ -10,9 +10,13 @@ jobs:
           echo "SOURCE_DATE_EPOCH=1734825600" >> $GITHUB_ENV
           echo "LC_ALL=C" >> $GITHUB_ENV
       - name: Toolchain
-        run: sudo apt-get update && sudo apt-get install -y build-essential
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential xorriso
       - name: Build
         run: make
+      - name: Build ISO
+        run: make iso
       - name: Size gate (kernel ≤ 512 KiB)
         run: ./scripts/size_gate.sh kernel.bin 524288
       - name: ISO size gate (≤ 32 MiB, conditional)
