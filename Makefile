@@ -24,7 +24,7 @@ endif
 CFLAGS  := -ffreestanding -Os -nostdlib -ffile-prefix-map=$(PWD)=. -Wall -Wextra
 LDFLAGS := $(STATIC) -nostdlib -Wl,-e,$(ENTRY) $(NO_PIE)
 
-all: kernel.bin $(OUT)/BUILDINFO $(OUT)/BANNER.txt
+all: kernel.bin $(OUT)/BUILDINFO $(OUT)/BANNER.txt boot/mbr.bin
 
 $(OUT)/BUILDINFO: scripts/buildinfo.sh
 	mkdir -p $(OUT)
@@ -33,6 +33,9 @@ $(OUT)/BUILDINFO: scripts/buildinfo.sh
 $(OUT)/BANNER.txt: $(OUT)/BUILDINFO scripts/mkbanner.sh
 	mkdir -p $(OUT)
 	./scripts/mkbanner.sh
+
+boot/mbr.bin: scripts/mkmbr.sh
+	./scripts/mkmbr.sh
 
 kernel.o: kernel/stub.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -47,10 +50,11 @@ ISO := iso/sovrn.iso
 .PHONY: iso
 iso: $(ISO)
 
-$(ISO): boot/BOOTX64.EFI scripts/mkiso.sh
+$(ISO): boot/BOOTX64.EFI boot/mbr.bin scripts/mkiso.sh
 	mkdir -p iso
 	bash scripts/mkiso.sh
 
 clean:
 	rm -f kernel.o kernel.bin
 	rm -rf $(OUT) iso
+	rm -f boot/mbr.bin
