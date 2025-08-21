@@ -18,8 +18,8 @@ jobs:
           sudo apt-get update
           # toolchain + ISO tools
           sudo apt-get install -y build-essential binutils xorriso mtools dosfstools uuid-dev gnu-efi
-          # add QEMU + OVMF firmware for the smoke test
-          sudo apt-get install -y qemu-system-x86 ovmf
+          # qemu runtime + firmware + qemu-img
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf
 
       - name: Build
         run: make
@@ -42,33 +42,48 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # find OVMF CODE
+          mkdir -p out
+          : > out/qemu-uefi-serial.log
+          echo "[preflight] starting smoke" | tee -a out/qemu-uefi-serial.log
+
+          # Find OVMF CODE
           CODE="/usr/share/OVMF/OVMF_CODE.fd"
           if [ ! -f "$CODE" ]; then
             CODE=$(ls /usr/share/OVMF/OVMF_CODE*.fd 2>/dev/null | head -1 || true)
           fi
           if [ ! -f "$CODE" ]; then
-            echo "OVMF CODE firmware not found"; ls -l /usr/share/OVMF || true; exit 2
+            echo "[preflight] OVMF CODE not found; contents of /usr/share/OVMF:" | tee -a out/qemu-uefi-serial.log
+            ls -l /usr/share/OVMF || true | tee -a out/qemu-uefi-serial.log
+            exit 2
+          fi
+          echo "[preflight] OVMF CODE: $CODE" | tee -a out/qemu-uefi-serial.log
+
+          # Make fresh VARS pflash (keep small)
+          VARS="$(mktemp -t ovmf_vars).fd"
+          if command -v qemu-img >/dev/null 2>&1; then
+            qemu-img create -f raw "$VARS" 4M >/dev/null
+          else
+            # Fallback (shouldn’t happen now that qemu-utils is installed)
+            dd if=/dev/zero of="$VARS" bs=1M count=4 status=none
           fi
 
-          VARS="$(mktemp -t ovmf_vars).fd"
-          qemu-img create -f raw "$VARS" 4M >/dev/null
-          mkdir -p out
+          echo "[preflight] qemu-system-x86_64: $(command -v qemu-system-x86_64 || echo MISSING)" | tee -a out/qemu-uefi-serial.log
+          echo "[preflight] qemu-img: $(command -v qemu-img || echo MISSING)" | tee -a out/qemu-uefi-serial.log
 
-          # run QEMU headless; always tee to a log so artifact step can upload it
+          # Run QEMU headless; always tee to a log
           /usr/bin/timeout 25s qemu-system-x86_64 \
             -machine q35 -m 256 -serial stdio -display none -no-reboot \
             -drive if=pflash,format=raw,readonly=on,file="$CODE" \
             -drive if=pflash,format=raw,file="$VARS" \
             -boot order=d,menu=off \
             -cdrom iso/sovrn.iso \
-            | tee out/qemu-uefi-serial.log || true
+            | tee -a out/qemu-uefi-serial.log || true
 
-          # assert banner appeared
+          # Assert banner
           if grep -q "SOVRN ENGINE ONLINE" out/qemu-uefi-serial.log; then
-            echo "Smoke OK: banner observed on serial."
+            echo "Smoke OK: banner observed on serial." | tee -a out/qemu-uefi-serial.log
           else
-            echo "Smoke FAILED. Last 120 lines:"
+            echo "Smoke FAILED. Last 120 lines:" | tee -a out/qemu-uefi-serial.log
             tail -n 120 out/qemu-uefi-serial.log || true
             exit 1
           fi
