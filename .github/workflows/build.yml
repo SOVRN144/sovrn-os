@@ -13,13 +13,13 @@ jobs:
           echo "LC_ALL=C" >> $GITHUB_ENV
 
       - name: Toolchain
-        shell: bash
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential binutils xorriso mtools dosfstools uuid-dev gnu-efi \
-            qemu-system-x86 qemu-utils ovmf
+          # toolchain + ISO tools
+          sudo apt-get install -y build-essential binutils xorriso mtools dosfstools uuid-dev gnu-efi
+          # add QEMU + OVMF firmware for the smoke test
+          sudo apt-get install -y qemu-system-x86 ovmf
 
       - name: Build
         run: make
@@ -41,9 +41,37 @@ jobs:
       - name: UEFI smoke (serial)
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
+          # find OVMF CODE
+          CODE="/usr/share/OVMF/OVMF_CODE.fd"
+          if [ ! -f "$CODE" ]; then
+            CODE=$(ls /usr/share/OVMF/OVMF_CODE*.fd 2>/dev/null | head -1 || true)
+          fi
+          if [ ! -f "$CODE" ]; then
+            echo "OVMF CODE firmware not found"; ls -l /usr/share/OVMF || true; exit 2
+          fi
+
+          VARS="$(mktemp -t ovmf_vars).fd"
+          qemu-img create -f raw "$VARS" 4M >/dev/null
           mkdir -p out
-          bash scripts/boot_smoke.sh iso/sovrn.iso
+
+          # run QEMU headless; always tee to a log so artifact step can upload it
+          /usr/bin/timeout 25s qemu-system-x86_64 \
+            -machine q35 -m 256 -serial stdio -display none -no-reboot \
+            -drive if=pflash,format=raw,readonly=on,file="$CODE" \
+            -drive if=pflash,format=raw,file="$VARS" \
+            -boot order=d,menu=off \
+            -cdrom iso/sovrn.iso \
+            | tee out/qemu-uefi-serial.log || true
+
+          # assert banner appeared
+          if grep -q "SOVRN ENGINE ONLINE" out/qemu-uefi-serial.log; then
+            echo "Smoke OK: banner observed on serial."
+          else
+            echo "Smoke FAILED. Last 120 lines:"
+            tail -n 120 out/qemu-uefi-serial.log || true
+            exit 1
+          fi
 
       - name: Upload serial log
         if: always()
