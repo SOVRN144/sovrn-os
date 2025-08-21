@@ -1,0 +1,9 @@
+/build/
+/out/
+/iso/
+/persist/*.log
+/agents/*.gguf
+/boot/keys/*
+*.iso
+*.img
+*.bin
