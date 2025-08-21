@@ -33,7 +33,6 @@ static void serial_init(void) {
 
 static void serial_putc(char c) {
   const unsigned short COM1 = 0x3F8;
-  // Wait for THR empty (LSR bit 5)
   while ((inb(COM1 + 5) & 0x20) == 0) { }
   outb(COM1 + 0, (unsigned char)c);
 }
@@ -67,5 +66,9 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     serial_write("VERSION="); serial_write(SOVRN_VERSION); serial_write("\n");
 #endif
 
+#ifdef SOVRN_EXIT_AFTER_BANNER
+    // For smoke tests: power off the VM immediately after the banner
+    SystemTable->RuntimeServices->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+#endif
     return EFI_SUCCESS;
 }
