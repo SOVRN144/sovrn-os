@@ -38,4 +38,5 @@ jobs:
             out/BANNER.txt
             iso/sovrn.iso
             boot/BOOTX64.EFI
+            boot/mbr.bin
           if-no-files-found: ignore
