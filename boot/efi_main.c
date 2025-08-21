@@ -1,33 +1,29 @@
 #include <efi.h>
 #include <efilib.h>
-#include <Protocol/SerialIo.h>
 #include "banner.h"
 
-static UINTN ascii_len(const CHAR8* s){ UINTN n=0; while(s && s[n]) n++; return n; }
+// banner.h should provide ASCII strings. We accept a few names to be tolerant.
+#ifndef SOVRN_BANNER
+#  ifdef BANNER_TEXT
+#    define SOVRN_BANNER BANNER_TEXT
+#  else
+#    define SOVRN_BANNER "SOVRN ENGINE ONLINE\n"
+#  endif
+#endif
 
-EFI_STATUS
-efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab) {
-  InitializeLib(image, systab);
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
+    InitializeLib(ImageHandle, SystemTable);
 
-  // Console banner (UEFI text)
-  Print(L"%s\n", BANNER_WIDE);
+    // Print ASCII banner to UEFI console (Print supports %a for ASCII)
+    Print(L"%a", SOVRN_BANNER);
 
-  // Serial banner (UEFI Serial I/O if available)
-  EFI_STATUS Status;
-  EFI_SERIAL_IO_PROTOCOL *Serial = NULL;
-  EFI_GUID SerialGuid = EFI_SERIAL_IO_PROTOCOL_GUID;
-  Status = uefi_call_wrapper(BS->LocateProtocol, 3, &SerialGuid, NULL, (VOID**)&Serial);
-  if (!EFI_ERROR(Status) && Serial) {
-    UINTN len = ascii_len((CONST CHAR8*)BANNER_ASCII);
-    uefi_call_wrapper(Serial->Write, 3, Serial, &len, (VOID*)BANNER_ASCII);
-    // newline
-    CHAR8 crlf[2] = {'\r','\n'};
-    UINTN two=2;
-    uefi_call_wrapper(Serial->Write, 3, Serial, &two, (VOID*)crlf);
-  } else {
-    // Fallback: at least show something on console about serial
-    Print(L"[uefi] Serial I/O protocol not found.\n");
-  }
+    // If banner.h exposes COMMIT or VERSION, show them too
+    #ifdef SOVRN_COMMIT
+      Print(L"COMMIT=%a\n", SOVRN_COMMIT);
+    #endif
+    #ifdef SOVRN_VERSION
+      Print(L"VERSION=%a\n", SOVRN_VERSION);
+    #endif
 
-  return EFI_SUCCESS;
+    return EFI_SUCCESS;
 }
