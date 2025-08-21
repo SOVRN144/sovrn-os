@@ -9,27 +9,33 @@ EFI="$OUTDIR/BOOTX64.EFI"
 mkdir -p "$OUTDIR" "$OBJDIR"
 
 have() { command -v "$1" >/dev/null 2>&1; }
+pick_objcopy() {
+  if have objcopy; then echo objcopy; elif have gobjcopy; then echo gobjcopy; else return 1; fi
+}
 
 if have gcc; then
-  INC_BASE="/usr/include/efi"
-  INC_X64="$INC_BASE/x86_64"
-  LDS=$(find /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/gnu-efi -name elf_x86_64_efi.lds -print -quit 2>/dev/null || true)
-  CRT=$(find /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/gnu-efi -name crt0-efi-x86_64.o -print -quit 2>/dev/null || true)
-  LIBDIR=$(dirname "$(find /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/gnu-efi -name libgnuefi.a -print -quit 2>/dev/null || echo /nonexistent)") || true
-
-  if [ -d "$INC_BASE" ] && [ -d "$INC_X64" ] && [ -n "${LDS:-}" ] && [ -n "${CRT:-}" ] && [ -d "${LIBDIR:-}" ]; then
-    CFLAGS="-I$INC_BASE -I$INC_X64 -fno-stack-protector -fpic -fshort-wchar -mno-red-zone -Wall -Wextra -Os"
-    LDFLAGS="-nostdlib -shared -Bsymbolic -znocombreloc -T $LDS -L$LIBDIR"
+  # Try to find gnu-efi bits on common distros
+  LDS=$(find /usr/lib /usr/lib64 /usr/local/lib -name 'elf_x86_64_efi.lds' -print -quit 2>/dev/null || true)
+  CRT=$(find /usr/lib /usr/lib64 /usr/local/lib -name 'crt0-efi-x86_64.o' -print -quit 2>/dev/null || true)
+  if [ -d /usr/include/efi ] && [ -n "${LDS:-}" ] && [ -n "${CRT:-}" ]; then
+    CFLAGS="-I/usr/include/efi -I/usr/include/efi/x86_64 -fno-stack-protector -fpic -fshort-wchar -mno-red-zone -DEFI_FUNCTION_WRAPPER -Wall -Wextra -Os"
+    LDFLAGS="-nostdlib -znocombreloc -T ${LDS} -shared -Bsymbolic"
     gcc $CFLAGS -c "$SRC" -o "$OBJDIR/efi_main.o"
-    ld  $LDFLAGS "$CRT" "$OBJDIR/efi_main.o" -lgnuefi -lefi -o "$OBJDIR/efi_main.so"
-    objcopy --target=efi-app-x86_64 "$OBJDIR/efi_main.so" "$EFI"
-    echo "Built $EFI via gnu-efi"
+    ld  $LDFLAGS "${CRT}" "$OBJDIR/efi_main.o" -o "$OBJDIR/efi_main.so" -L/usr/lib -lgnuefi -lefi
+
+    # Make a proper PE/COFF EFI Application
+    OBJCOPY=$(pick_objcopy) || {
+      echo "objcopy/gobjcopy not found"; exit 1;
+    }
+    "$OBJCOPY" \
+      -j .text -j .sdata -j .data -j .dynamic -j .rodata \
+      -j .rel -j .rela -j .rel.* -j .rela.* -j .reloc \
+      --subsystem=10 \
+      --target=efi-app-x86_64 \
+      "$OBJDIR/efi_main.so" "$EFI"
+
+    echo "Built $EFI via gnu-efi with Subsystem=EFI application"
     exit 0
-  else
-    echo "diag: INC_BASE=$INC_BASE  INC_X64=$INC_X64"
-    echo "diag: LDS=$LDS"
-    echo "diag: CRT=$CRT"
-    echo "diag: LIBDIR=$LIBDIR"
   fi
 fi
 
