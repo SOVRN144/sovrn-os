@@ -35,6 +35,7 @@ jobs:
           path: |
             kernel.bin
             out/BUILDINFO
+            out/BANNER.txt
             iso/sovrn.iso
             boot/BOOTX64.EFI
           if-no-files-found: ignore
