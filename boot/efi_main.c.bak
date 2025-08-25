@@ -1,0 +1,14 @@
+#include <efi.h>
+#include <efilib.h>
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *ST) {
+  InitializeLib(ImageHandle, ST);
+  if (ST && ST->ConOut) {
+    ST->ConOut->OutputString(ST->ConOut, L"SOVRN ENGINE ONLINE\r\n");
+    ST->ConOut->OutputString(ST->ConOut, L"Press any key to exit...\r\n");
+  }
+  // Wait for one key press so you can SEE it.
+  UINTN idx = 0; EFI_EVENT ev = ST->ConIn->WaitForKey; EFI_INPUT_KEY k;
+  uefi_call_wrapper(ST->BootServices->WaitForEvent, 3, 1, &ev, &idx);
+  uefi_call_wrapper(ST->ConIn->ReadKeyStroke, 2, ST->ConIn, &k);
+  return EFI_SUCCESS;
+}

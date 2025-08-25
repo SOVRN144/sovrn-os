@@ -1,74 +1,59 @@
 #include <efi.h>
-#include <efilib.h>
-#include "banner.h"
+#include <stdint.h>
+#include "buildinfo_autogen.h"
 
-#ifndef SOVRN_BANNER
-#  ifdef BANNER_TEXT
-#    define SOVRN_BANNER BANNER_TEXT
-#  else
-#    define SOVRN_BANNER "SOVRN ENGINE ONLINE\n"
-#  endif
-#endif
+/* very small COM1 (0x3F8) serial driver */
+static inline void outb(uint16_t p, uint8_t v){ __asm__ volatile("outb %0,%1"::"a"(v),"Nd"(p)); }
+static inline uint8_t inb(uint16_t p){ uint8_t r; __asm__ volatile("inb %1,%0":"=a"(r):"Nd"(p)); return r; }
 
-// --- Minimal 16550A UART on COM1 (0x3F8), no EDK2 headers required ---
-static inline void outb(unsigned short port, unsigned char val) {
-  __asm__ volatile ("outb %0,%1" : : "a"(val), "Nd"(port));
+static void serial_init(void){
+  const uint16_t COM1=0x3F8;
+  outb(COM1+1,0x00);        // disable interrupts
+  outb(COM1+3,0x80);        // DLAB on
+  outb(COM1+0,0x01);        // divisor low (115200)
+  outb(COM1+1,0x00);        // divisor high
+  outb(COM1+3,0x03);        // 8N1, DLAB off
+  outb(COM1+2,0xC7);        // FIFO on, clear, 14-byte
+  outb(COM1+4,0x0B);        // DTR, RTS, OUT2
 }
-static inline unsigned char inb(unsigned short port) {
-  unsigned char ret;
-  __asm__ volatile ("inb %1,%0" : "=a"(ret) : "Nd"(port));
-  return ret;
+static void serial_putc(char c){
+  const uint16_t LSR=0x3F8+5, TX=0x3F8;
+  while((inb(LSR)&0x20)==0) { }
+  outb(TX,(uint8_t)c);
 }
+static void serial_puts(const char* s){ while(*s) serial_putc(*s++); }
 
-static void serial_init(void) {
-  const unsigned short COM1 = 0x3F8;
-  outb(COM1 + 1, 0x00);      // IER: disable interrupts
-  outb(COM1 + 3, 0x80);      // LCR: enable DLAB
-  outb(COM1 + 0, 0x01);      // DLL: 115200 baud (divisor 1)
-  outb(COM1 + 1, 0x00);      // DLM
-  outb(COM1 + 3, 0x03);      // LCR: 8N1, DLAB=0
-  outb(COM1 + 2, 0xC7);      // FCR: enable FIFO, clear, 14-byte threshold
-  outb(COM1 + 4, 0x0B);      // MCR: IRQs enabled, RTS/DSR set
-}
-
-static void serial_putc(char c) {
-  const unsigned short COM1 = 0x3F8;
-  while ((inb(COM1 + 5) & 0x20) == 0) { }
-  outb(COM1 + 0, (unsigned char)c);
-}
-
-static void serial_write(const char *s) {
-  while (*s) {
-    if (*s == '\n') serial_putc('\r');
-    serial_putc(*s++);
+/* print ASCII to UEFI console */
+static void console_puts(EFI_SYSTEM_TABLE* ST, const char* s){
+  CHAR16 buf[256];
+  while(*s){
+    UINTN n=0;
+    for(; s[n] && n<255; ++n) buf[n]=(CHAR16)(unsigned char)s[n];
+    buf[n]=0;
+    ST->ConOut->OutputString(ST->ConOut, buf);
+    s += n;
   }
 }
 
-EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
-    InitializeLib(ImageHandle, SystemTable);
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *ST) {
+  serial_init();
 
-    // UEFI console
-    Print(L"%a", SOVRN_BANNER);
-#ifdef SOVRN_COMMIT
-    Print(L"COMMIT=%a\n", SOVRN_COMMIT);
-#endif
-#ifdef SOVRN_VERSION
-    Print(L"VERSION=%a\n", SOVRN_VERSION);
-#endif
+  const char* banner =
+    "SOVRN ENGINE ONLINE "
+    "PRODUCT="BI_PRODUCT" "
+    "VERSION="BI_VERSION" "
+    "COMMIT="BI_COMMIT" "
+    "BUILD_EPOCH="BI_BUILD_EPOCH" "
+    "TRIPLE="BI_TRIPLE" "
+    "TOOLCHAIN="BI_TOOLCHAIN"\r\n";
 
-    // Serial mirror
-    serial_init();
-    serial_write(SOVRN_BANNER);
-#ifdef SOVRN_COMMIT
-    serial_write("COMMIT="); serial_write(SOVRN_COMMIT); serial_write("\n");
-#endif
-#ifdef SOVRN_VERSION
-    serial_write("VERSION="); serial_write(SOVRN_VERSION); serial_write("\n");
-#endif
+  console_puts(ST, banner);
+  serial_puts(banner);
 
-#ifdef SOVRN_EXIT_AFTER_BANNER
-    // For smoke tests: power off the VM immediately after the banner
-    SystemTable->RuntimeServices->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
-#endif
-    return EFI_SUCCESS;
+  // give humans a moment
+  ST->BootServices->Stall(1000000);
+
+  // warm reboot; with -no-reboot QEMU exits and CI can grep serial
+  ST->RuntimeServices->ResetSystem(EfiResetWarm, EFI_SUCCESS, 0, NULL);
+  for(;;){} // never return to firmware
 }

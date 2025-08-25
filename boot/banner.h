@@ -1,0 +1,9 @@
+#pragma once
+#define BANNER_ASCII "SOVRN ENGINE ONLINE | VERSION=v0.1.0-phase1-12-g3a4dfd7-dirty | COMMIT=3a4dfd7110e1 | EPOCH=1755785547 | TRIPLE=x86_64-elf | TOOLCHAIN=x86_64-elf-gcc (GCC) 15.2.0"
+#define BANNER_WIDE  L"SOVRN ENGINE ONLINE | VERSION=v0.1.0-phase1-12-g3a4dfd7-dirty | COMMIT=3a4dfd7110e1 | EPOCH=1755785547 | TRIPLE=x86_64-elf | TOOLCHAIN=x86_64-elf-gcc (GCC) 15.2.0"
+#define BANNER_PRODUCT   L"SOVRN OS"
+#define BANNER_VERSION   L"v0.1.0-phase1-12-g3a4dfd7-dirty"
+#define BANNER_COMMIT    L"3a4dfd7110e1"
+#define BANNER_EPOCH     L"1755785547"
+#define BANNER_TRIPLE    L"x86_64-elf"
+#define BANNER_TOOLCHAIN L"x86_64-elf-gcc (GCC) 15.2.0"
