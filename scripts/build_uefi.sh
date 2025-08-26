@@ -14,7 +14,7 @@ if clang -target x86_64-pc-win32-coff -fuse-ld=lld \
   -ffreestanding -fshort-wchar -fno-stack-protector -fno-pic -mno-red-zone \
   -Iout -Iout/compat -Iboot \
   -Wl,/subsystem:efi_application -Wl,/entry:efi_main -nostdlib \
-  boot/uefi_main.c -o boot/BOOTX64.EFI
+  -I/usr/include/efi -I/usr/include/efi/x86_64 -I/usr/include/efi/protocol boot/uefi_main.c -o boot/BOOTX64.EFI
 then
   exit 0
 fi
