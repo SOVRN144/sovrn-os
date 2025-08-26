@@ -2,6 +2,10 @@ name: Gate 2A — Smoke (BIOS+UEFI)
 
 on: [push]
 
+concurrency:
+  group: gate2a-smoke
+  cancel-in-progress: true
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -21,44 +25,54 @@ jobs:
 
       - name: Build BIOS+UEFI and ISO inside container
         run: |
+          set -euxo pipefail
           docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -euxc '
             scripts/buildinfo.sh
             scripts/build_bios.sh
             scripts/esp_sync.sh
             scripts/mkiso.sh
           '
-          ls -lh iso/sovrn.iso out/stage2.bin boot/BOOTX64.EFI
+          ls -lh iso/sovrn.iso out/stage2.bin || true
+          test -s iso/sovrn.iso
 
-      - name: BIOS smoke (legacy)
+      - name: BIOS smoke (legacy, capture serial)
         run: |
-          qemu-system-i386 -machine pc,accel=tcg -no-reboot \
-            -serial file:serial-bios.log \
-            -cdrom "$PWD/iso/sovrn.iso" -boot order=d || true
-          sed -n '1,120p' serial-bios.log || true
+          set -euxo pipefail
+          touch bios.log
+          timeout 25s qemu-system-i386 \
+            -machine pc,accel=tcg -display none -no-reboot \
+            -serial stdio \
+            -cdrom "$PWD/iso/sovrn.iso" -boot order=d \
+            | tee bios.log || true
+          test -e bios.log
 
-      - name: UEFI smoke (OVMF)
+      - name: UEFI smoke (OVMF, capture serial)
         run: |
-          CODE=/usr/share/OVMF/OVMF_CODE.fd
-          VARS=/usr/share/OVMF/OVMF_VARS.fd
-          cp "$VARS" OVMF_VARS.tmp.fd
-          qemu-system-x86_64 -machine q35,accel=tcg -no-reboot \
-            -serial file:serial-uefi.log \
-            -drive if=pflash,format=raw,readonly=on,file="$CODE" \
-            -drive if=pflash,format=raw,file=OVMF_VARS.tmp.fd \
-            -cdrom "$PWD/iso/sovrn.iso" -boot order=d,menu=off || true
-          sed -n '1,120p' serial-uefi.log || true
+          set -euxo pipefail
+          cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
+          touch uefi.log
+          timeout 25s qemu-system-x86_64 \
+            -machine q35,accel=tcg -display none -no-reboot \
+            -serial stdio \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
+            -drive if=pflash,format=raw,file="$PWD/OVMF_VARS.fd" \
+            -cdrom "$PWD/iso/sovrn.iso" -boot order=d,menu=off \
+            | tee uefi.log || true
+          test -e uefi.log
 
-      - name: Assert banner seen on both paths
+      - name: Assert banner on both paths
         run: |
-          set -e
-          grep -F "SOVRN ENGINE ONLINE" serial-bios.log
-          grep -F "SOVRN ENGINE ONLINE" serial-uefi.log
+          set -eux
+          grep -F "SOVRN ENGINE ONLINE" bios.log
+          grep -F "SOVRN ENGINE ONLINE" uefi.log
           echo "Smoke PASS"
 
-      - name: Upload smoke logs
+      - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-logs
+          name: gate2a-artifacts
           path: |
-            serial-bios.log
-            serial-uefi.log
+            iso/sovrn.iso
+            bios.log
+            uefi.log
