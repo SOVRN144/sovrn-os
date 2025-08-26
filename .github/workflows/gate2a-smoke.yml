@@ -1,59 +1,64 @@
 name: Gate 2A — Smoke (BIOS+UEFI)
 
-on:
-  push:
-  pull_request:
+on: [push]
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install QEMU + OVMF
+      - name: Install host deps (QEMU + OVMF)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 ovmf
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 ovmf xorriso
 
-      - name: Build ISO in Docker
+      - name: Build tool image
+        run: docker build -t sovrn-efi .
+
+      - name: Build BIOS+UEFI and ISO inside container
         run: |
-          set -euxo pipefail
-          docker build -t sovrn-efi .
-          docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -eu scripts/buildinfo.sh
-          docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -eu scripts/build_bios.sh
-          docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -eu scripts/esp_sync.sh
-          docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -eu scripts/mkiso.sh
-          ls -lh iso/sovrn.iso
+          docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -euxc '
+            scripts/buildinfo.sh
+            scripts/build_bios.sh
+            scripts/esp_sync.sh
+            scripts/mkiso.sh
+          '
+          ls -lh iso/sovrn.iso out/stage2.bin boot/BOOTX64.EFI
 
-      - name: BIOS smoke (serial grep)
+      - name: BIOS smoke (legacy)
         run: |
-          set -euxo pipefail
-          # Run for up to 20s; capture serial; allow timeout exit
-          timeout 20s qemu-system-i386 \
-            -machine pc,accel=tcg -display none -serial stdio -no-reboot \
-            -cdrom "$PWD/iso/sovrn.iso" -boot order=d \
-            | tee bios.log || true
-          grep -F "SOVRN ENGINE ONLINE" bios.log
+          qemu-system-i386 -machine pc,accel=tcg -no-reboot \
+            -serial file:serial-bios.log \
+            -cdrom "$PWD/iso/sovrn.iso" -boot order=d || true
+          sed -n '1,120p' serial-bios.log || true
 
-      - name: UEFI smoke (serial grep via OVMF)
+      - name: UEFI smoke (OVMF)
         run: |
-          set -euxo pipefail
-          cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
-          timeout 20s qemu-system-x86_64 \
-            -machine q35,accel=tcg -display none -serial stdio -no-reboot \
-            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
-            -drive if=pflash,format=raw,file="$PWD/OVMF_VARS.fd" \
-            -cdrom "$PWD/iso/sovrn.iso" -boot order=d,menu=off \
-            | tee uefi.log || true
-          grep -F "SOVRN ENGINE ONLINE" uefi.log
+          CODE=/usr/share/OVMF/OVMF_CODE.fd
+          VARS=/usr/share/OVMF/OVMF_VARS.fd
+          cp "$VARS" OVMF_VARS.tmp.fd
+          qemu-system-x86_64 -machine q35,accel=tcg -no-reboot \
+            -serial file:serial-uefi.log \
+            -drive if=pflash,format=raw,readonly=on,file="$CODE" \
+            -drive if=pflash,format=raw,file=OVMF_VARS.tmp.fd \
+            -cdrom "$PWD/iso/sovrn.iso" -boot order=d,menu=off || true
+          sed -n '1,120p' serial-uefi.log || true
 
-      - name: Upload artifacts
+      - name: Assert banner seen on both paths
+        run: |
+          set -e
+          grep -F "SOVRN ENGINE ONLINE" serial-bios.log
+          grep -F "SOVRN ENGINE ONLINE" serial-uefi.log
+          echo "Smoke PASS"
+
+      - name: Upload smoke logs
         uses: actions/upload-artifact@v4
         with:
-          name: gate2a-artifacts
+          name: smoke-logs
           path: |
-            iso/sovrn.iso
-            bios.log
-            uefi.log
+            serial-bios.log
+            serial-uefi.log
