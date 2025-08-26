@@ -1,15 +1,19 @@
-/build/
-/out/
-/iso/
-/persist/*.log
-/agents/*.gguf
-/boot/keys/*
+# build artifacts
+iso/
+isoroot/
+boot.img
+esp.img
 *.iso
-*.img
-*.bin
+OVMF*.fd
 
-*.o
+# compiled / binaries
+boot/BOOTX64.EFI
+*.so
+*.obj
 
-/out/
-
-iso_root/
+# logs
+*.log
+*.ovmf.log
+qemu_bios*.log
+conout*.log
+serial*.log
