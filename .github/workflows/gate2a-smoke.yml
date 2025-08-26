@@ -1,0 +1,59 @@
+name: Gate 2A — Smoke (BIOS+UEFI)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install QEMU + OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+
+      - name: Build ISO in Docker
+        run: |
+          set -euxo pipefail
+          docker build -t sovrn-efi .
+          docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -eu scripts/buildinfo.sh
+          docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -eu scripts/build_bios.sh
+          docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -eu scripts/esp_sync.sh
+          docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -eu scripts/mkiso.sh
+          ls -lh iso/sovrn.iso
+
+      - name: BIOS smoke (serial grep)
+        run: |
+          set -euxo pipefail
+          # Run for up to 20s; capture serial; allow timeout exit
+          timeout 20s qemu-system-i386 \
+            -machine pc,accel=tcg -display none -serial stdio -no-reboot \
+            -cdrom "$PWD/iso/sovrn.iso" -boot order=d \
+            | tee bios.log || true
+          grep -F "SOVRN ENGINE ONLINE" bios.log
+
+      - name: UEFI smoke (serial grep via OVMF)
+        run: |
+          set -euxo pipefail
+          cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
+          timeout 20s qemu-system-x86_64 \
+            -machine q35,accel=tcg -display none -serial stdio -no-reboot \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
+            -drive if=pflash,format=raw,file="$PWD/OVMF_VARS.fd" \
+            -cdrom "$PWD/iso/sovrn.iso" -boot order=d,menu=off \
+            | tee uefi.log || true
+          grep -F "SOVRN ENGINE ONLINE" uefi.log
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate2a-artifacts
+          path: |
+            iso/sovrn.iso
+            bios.log
+            uefi.log
