@@ -1,10 +1,8 @@
 name: Gate 2A — Smoke (BIOS+UEFI)
 
-on: [push]
-
-concurrency:
-  group: gate2a-smoke
-  cancel-in-progress: true
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   smoke:
@@ -29,10 +27,11 @@ jobs:
           docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -euxc '
             scripts/buildinfo.sh
             scripts/build_bios.sh
+            scripts/build_uefi.sh
             scripts/esp_sync.sh
             scripts/mkiso.sh
           '
-          ls -lh iso/sovrn.iso out/stage2.bin || true
+          ls -lh iso/sovrn.iso out/stage2.bin boot/BOOTX64.EFI
           test -s iso/sovrn.iso
 
       - name: BIOS smoke (legacy, capture serial)
