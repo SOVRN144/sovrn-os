@@ -1,30 +1,54 @@
 #!/bin/sh
 set -eux
 umask 022
+
+# dirs for generated headers/objs
 mkdir -p out boot out/compat/Protocol
 
-# Make an EDK2-style shim that includes the Debian/gnu-efi header
-echo '#include <efi/protocol/serial-io.h>' > out/compat/Protocol/SerialIo.h
+# ---- EDK2/GNU-EFI include name shim ---------------------------------------
+# The file below is included by boot/uefi_main.c as <Protocol/SerialIo.h>.
+# It tries all common locations/names across distros.
+cat > out/compat/Protocol/SerialIo.h <<'EOF'
+#if defined(__has_include)
+  /* EDK2 style (Fedora/Arch edk2-headers, etc.) */
+  #if __has_include(<Protocol/SerialIo.h>)
+    #include <Protocol/SerialIo.h>
+  /* Debian/Ubuntu gnu-efi sometimes exports capitalized path under /usr/include/efi */
+  #elif __has_include(<efi/Protocol/SerialIo.h>)
+    #include <efi/Protocol/SerialIo.h>
+  /* Debian/Ubuntu gnu-efi (lowercase + hyphen) */
+  #elif __has_include(<efi/protocol/serial-io.h>)
+    #include <efi/protocol/serial-io.h>
+  #else
+    #error "SerialIo.h not found in any known location"
+  #endif
+#else
+  /* Fallback if __has_include is unavailable: try the most common first */
+  #include <Protocol/SerialIo.h>
+#endif
+EOF
 
 # Ensure build info header exists
 [ -f out/buildinfo_autogen.h ] || scripts/buildinfo.sh
 
-# --- Try direct PE/COFF with clang+lld --------------------------------------
+# ---- Try direct PE/COFF with clang+lld (works on many runners) ------------
+# Make system EFI headers visible and also our 'out/compat'
 if clang -target x86_64-pc-win32-coff -fuse-ld=lld \
   -ffreestanding -fshort-wchar -fno-stack-protector -fno-pic -mno-red-zone \
-  -Iout -Iout/compat -Iboot \
+  -Iout -Iboot -Iout/compat \
+  -I/usr/include/efi -I/usr/include/efi/x86_64 -I/usr/include/efi/protocol \
   -Wl,/subsystem:efi_application -Wl,/entry:efi_main -nostdlib \
-  -I/usr/include/efi -I/usr/include/efi/x86_64 -I/usr/include/efi/protocol boot/uefi_main.c -o boot/BOOTX64.EFI
+  boot/uefi_main.c -o boot/BOOTX64.EFI
 then
   exit 0
 fi
 
-# --- Fallback: link via gnu-efi ---------------------------------------------
+# ---- Fallback: link via gnu-efi -------------------------------------------
 EFIINC=/usr/include/efi
 EFIARCH=x86_64
-EFIINCS="-Iout -Iout/compat -Iboot -I$EFIINC -I$EFIINC/$EFIARCH -I$EFIINC/protocol"
+EFIINCS="-Iout -Iboot -Iout/compat -I$EFIINC -I$EFIINC/$EFIARCH -I$EFIINC/protocol"
 
-# Find ldscript/crt0 in common Debian paths if not discoverable
+# Try to discover the script and crt0 (paths vary by distro)
 LDSCRIPT="$(ldconfig -p 2>/dev/null | grep -Eo '/.*/elf_x86_64_efi\.lds' | head -n1 || true)"
 CRT0="$(ldconfig -p 2>/dev/null | grep -Eo '/.*/crt0-efi-x86_64\.o' | head -n1 || true)"
 [ -z "$LDSCRIPT" ] && [ -f /usr/lib/x86_64-linux-gnu/gnu-efi/elf_x86_64_efi.lds ] && LDSCRIPT=/usr/lib/x86_64-linux-gnu/gnu-efi/elf_x86_64_efi.lds
