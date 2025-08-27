@@ -2,36 +2,44 @@
 set -eux
 umask 022
 
-# dirs for generated headers/objs
+# workspace
 mkdir -p out boot out/compat/Protocol
 
-# ---- EDK2/GNU-EFI include name shim ---------------------------------------
-# The file below is included by boot/uefi_main.c as <Protocol/SerialIo.h>.
-# It tries all common locations/names across distros.
+# ---- SerialIo header shim (avoid recursion with include_next) --------------
 cat > out/compat/Protocol/SerialIo.h <<'EOF'
+#ifndef SOVRN_SERIALIO_SHIM_GUARD
+#define SOVRN_SERIALIO_SHIM_GUARD 1
+
 #if defined(__has_include)
-  /* EDK2 style (Fedora/Arch edk2-headers, etc.) */
-  #if __has_include(<Protocol/SerialIo.h>)
-    #include <Protocol/SerialIo.h>
-  /* Debian/Ubuntu gnu-efi sometimes exports capitalized path under /usr/include/efi */
-  #elif __has_include(<efi/Protocol/SerialIo.h>)
-    #include <efi/Protocol/SerialIo.h>
-  /* Debian/Ubuntu gnu-efi (lowercase + hyphen) */
-  #elif __has_include(<efi/protocol/serial-io.h>)
-    #include <efi/protocol/serial-io.h>
-  #else
-    #error "SerialIo.h not found in any known location"
-  #endif
+/* Debian/Ubuntu gnu-efi headers live here */
+# if __has_include(<efi/protocol/serial-io.h>)
+#  include <efi/protocol/serial-io.h>
+/* EDK2 style path: skip this shim dir and include the next match */
+# elif __has_include(<Protocol/SerialIo.h>)
+#  if defined(__clang__) || defined(__GNUC__)
+#   include_next <Protocol/SerialIo.h>
+#  else
+#   include <Protocol/SerialIo.h>
+#  endif
+# else
+#  error "UEFI SerialIo header not found on this runner"
+# endif
 #else
-  /* Fallback if __has_include is unavailable: try the most common first */
-  #include <Protocol/SerialIo.h>
+/* No __has_include: try to skip this directory anyway */
+# if defined(__clang__) || defined(__GNUC__)
+#  include_next <Protocol/SerialIo.h>
+# else
+#  include <Protocol/SerialIo.h>
+# endif
 #endif
+
+#endif /* SOVRN_SERIALIO_SHIM_GUARD */
 EOF
 
-# Ensure build info header exists
+# Ensure buildinfo header exists
 [ -f out/buildinfo_autogen.h ] || scripts/buildinfo.sh
 
-# ---- Try direct PE/COFF with clang+lld (works on many runners) ------------
+# ---- Try direct PE/COFF with clang+lld ------------------------------------
 # Make system EFI headers visible and also our 'out/compat'
 if clang -target x86_64-pc-win32-coff -fuse-ld=lld \
   -ffreestanding -fshort-wchar -fno-stack-protector -fno-pic -mno-red-zone \
@@ -48,7 +56,6 @@ EFIINC=/usr/include/efi
 EFIARCH=x86_64
 EFIINCS="-Iout -Iboot -Iout/compat -I$EFIINC -I$EFIINC/$EFIARCH -I$EFIINC/protocol"
 
-# Try to discover the script and crt0 (paths vary by distro)
 LDSCRIPT="$(ldconfig -p 2>/dev/null | grep -Eo '/.*/elf_x86_64_efi\.lds' | head -n1 || true)"
 CRT0="$(ldconfig -p 2>/dev/null | grep -Eo '/.*/crt0-efi-x86_64\.o' | head -n1 || true)"
 [ -z "$LDSCRIPT" ] && [ -f /usr/lib/x86_64-linux-gnu/gnu-efi/elf_x86_64_efi.lds ] && LDSCRIPT=/usr/lib/x86_64-linux-gnu/gnu-efi/elf_x86_64_efi.lds
