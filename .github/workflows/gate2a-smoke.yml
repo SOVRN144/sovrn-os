@@ -15,8 +15,8 @@ jobs:
 
       - name: Install host deps (QEMU + OVMF)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-system-x86 ovmf xorriso
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf xorriso
 
       - name: Build tool image
         run: docker build -t sovrn-efi .
@@ -26,45 +26,36 @@ jobs:
           set -euxo pipefail
           docker run --rm -v "$PWD":/work -w /work --entrypoint /bin/sh sovrn-efi -euxc '
             scripts/buildinfo.sh
-            scripts/build_bios.sh
             scripts/build_uefi.sh
+            scripts/build_bios.sh
             scripts/esp_sync.sh
             scripts/mkiso.sh
           '
-          ls -lh iso/sovrn.iso out/stage2.bin boot/BOOTX64.EFI
+          ls -lh iso/sovrn.iso out/stage2.bin boot/BOOTX64.EFI isoroot/EFI/BOOT/BOOTX64.EFI
           test -s iso/sovrn.iso
 
       - name: BIOS smoke (legacy, capture serial)
         run: |
           set -euxo pipefail
-          touch bios.log
           timeout 25s qemu-system-i386 \
-            -machine pc,accel=tcg -display none -no-reboot \
+            -machine pc -display none -no-reboot \
             -serial stdio \
             -cdrom "$PWD/iso/sovrn.iso" -boot order=d \
             | tee bios.log || true
-          test -e bios.log
+          grep -F "SOVRN ENGINE ONLINE" bios.log
 
       - name: UEFI smoke (OVMF, capture serial)
         run: |
           set -euxo pipefail
           cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
-          touch uefi.log
           timeout 25s qemu-system-x86_64 \
-            -machine q35,accel=tcg -display none -no-reboot \
+            -machine q35 -display none -no-reboot \
             -serial stdio \
-            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
-            -drive if=pflash,format=raw,file="$PWD/OVMF_VARS.fd" \
-            -cdrom "$PWD/iso/sovrn.iso" -boot order=d,menu=off \
+            -pflash /usr/share/OVMF/OVMF_CODE.fd \
+            -pflash "$PWD/OVMF_VARS.fd" \
+            -cdrom "$PWD/iso/sovrn.iso" -boot order=d \
             | tee uefi.log || true
-          test -e uefi.log
-
-      - name: Assert banner on both paths
-        run: |
-          set -eux
-          grep -F "SOVRN ENGINE ONLINE" bios.log
           grep -F "SOVRN ENGINE ONLINE" uefi.log
-          echo "Smoke PASS"
 
       - name: Upload artifacts
         if: always()
@@ -73,5 +64,6 @@ jobs:
           name: gate2a-artifacts
           path: |
             iso/sovrn.iso
+            isoroot/EFI/BOOT/BOOTX64.EFI
             bios.log
             uefi.log
