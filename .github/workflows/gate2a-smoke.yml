@@ -60,7 +60,8 @@ jobs:
             echo "dpkg -L ovmf:"; dpkg -L ovmf || true
             exit 1
           fi
-          cp "$ovmf_vars" ./OVMF_VARS.fd
+          cp "$ovmf_vars" "$PWD/OVMF_VARS.fd"
+          chmod u+w "$PWD/OVMF_VARS.fd"
           echo "OVMF_CODE: $ovmf_code"
           echo "OVMF_VARS: $ovmf_vars"
           timeout 25s qemu-system-x86_64 \
