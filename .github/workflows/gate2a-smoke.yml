@@ -47,11 +47,24 @@ jobs:
       - name: UEFI smoke (OVMF, capture serial)
         run: |
           set -euxo pipefail
-          cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
+          # Discover OVMF firmware paths on the GitHub runner
+          ovmf_code=$(ls /usr/share/OVMF/OVMF_CODE*.fd 2>/dev/null | head -n1 || true)
+          ovmf_vars=$(ls /usr/share/OVMF/OVMF_VARS*.fd 2>/dev/null | head -n1 || true)
+          if [ -z "$ovmf_code" ] || [ -z "$ovmf_vars" ]; then
+            ovmf_code=$(dpkg -L ovmf | grep -E "/OVMF_CODE[^/]*\.fd$" | head -n1 || true)
+            ovmf_vars=$(dpkg -L ovmf | grep -E "/OVMF_VARS[^/]*\.fd$" | head -n1 || true)
+          fi
+          if [ -z "$ovmf_code" ] || [ -z "$ovmf_vars" ]; then
+            echo "Could not locate OVMF firmware files" >&2
+            echo "Contents of /usr/share/OVMF:"; ls -lah /usr/share/OVMF || true
+            echo "dpkg -L ovmf:"; dpkg -L ovmf || true
+            exit 1
+          fi
+          cp "$ovmf_vars" ./OVMF_VARS.fd
           timeout 25s qemu-system-x86_64 \
             -machine q35 -display none -no-reboot \
             -serial stdio \
-            -pflash /usr/share/OVMF/OVMF_CODE.fd \
+            -pflash "" \
             -pflash "$PWD/OVMF_VARS.fd" \
             -cdrom "$PWD/iso/sovrn.iso" -boot order=d \
             | tee uefi.log || true

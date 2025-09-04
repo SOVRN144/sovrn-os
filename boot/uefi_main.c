@@ -25,7 +25,7 @@ static void serial_putc(char c){
 
 static void serial_puts(const char *s){ while(*s) serial_putc(*s++); }
 
-EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st){
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st){
     InitializeLib(image, st);
 
     // Console banner (UEFI text)
