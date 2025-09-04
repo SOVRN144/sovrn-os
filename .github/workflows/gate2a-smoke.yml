@@ -61,10 +61,12 @@ jobs:
             exit 1
           fi
           cp "$ovmf_vars" ./OVMF_VARS.fd
+          echo "OVMF_CODE: $ovmf_code"
+          echo "OVMF_VARS: $ovmf_vars"
           timeout 25s qemu-system-x86_64 \
             -machine q35 -display none -no-reboot \
             -serial stdio \
-            -pflash "" \
+            -pflash "$ovmf_code" \
             -pflash "$PWD/OVMF_VARS.fd" \
             -cdrom "$PWD/iso/sovrn.iso" -boot order=d \
             | tee uefi.log || true
