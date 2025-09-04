@@ -67,8 +67,9 @@ jobs:
           timeout 25s qemu-system-x86_64 \
             -machine q35 -display none -no-reboot \
             -serial stdio \
-            -pflash "$ovmf_code" \
-            -pflash "$PWD/OVMF_VARS.fd" \
+            
+-drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
+            -drive if=pflash,format=raw,file="$PWD/OVMF_VARS.fd" \
             -cdrom "$PWD/iso/sovrn.iso" -boot order=d \
             | tee uefi.log || true
           grep -F "SOVRN ENGINE ONLINE" uefi.log
