@@ -1,15 +1,12 @@
-FROM ubuntu:24.04
+FROM debian:bookworm-slim
 
 RUN set -eux; \
-    apt-get update -qq; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-      software-properties-common ca-certificates; \
-    add-apt-repository -y universe; \
-    apt-get update -qq; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       clang lld binutils nasm \
       mtools dosfstools xorriso \
-      gnu-efi gnu-efi-dev uuid-dev; \
+      gnu-efi uuid-dev \
+      ca-certificates make; \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
