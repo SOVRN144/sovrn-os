@@ -1,0 +1,7 @@
+#pragma once
+#define BI_PRODUCT_STR "SOVRN"
+#define BI_VERSION_STR "v0.1.0-phase2"
+#define BI_COMMIT_STR "4fb0749189f8"
+#define BI_BUILD_EPOCH_STR "1758487672"
+#define BI_TRIPLE_STR "x86_64-pc-win32-coff"
+#define BI_TOOLCHAIN_STR "Ubuntu clang version 18.1.3 (1ubuntu1)"
